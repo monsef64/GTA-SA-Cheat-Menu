@@ -104,7 +104,7 @@ inline Matrix4x4 IdentityMatrix() {
 // GetTransform() takes a D3DMATRIX*, which is declared in d3d9.h and so is
 // always available. D3DMATRIX and Matrix4x4 have the same layout, so the
 // result is read straight into our own type.
-inline HRESULT GetTransformMatrix(IDirect3DDevice9* device, D3DTS state,
+inline HRESULT ReadTransformMatrix(IDirect3DDevice9* device, D3DTS state,
                                   Matrix4x4* out) {
     if (device == nullptr || out == nullptr) return E_FAIL;
 

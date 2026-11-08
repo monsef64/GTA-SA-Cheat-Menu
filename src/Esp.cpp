@@ -58,8 +58,8 @@ bool WorldToScreen(IDirect3DDevice9* device, const Vec3& world, float* outX, flo
 
     Matrix4x4 view;
     Matrix4x4 projection;
-    if (FAILED(GetTransformMatrix(device, D3DTS_VIEW, &view))) return false;
-    if (FAILED(GetTransformMatrix(device, D3DTS_PROJECTION, &projection))) return false;
+    if (FAILED(ReadTransformMatrix(device, D3DTS_VIEW, &view))) return false;
+    if (FAILED(ReadTransformMatrix(device, D3DTS_PROJECTION, &projection))) return false;
 
     const Vector3 screen =
         ProjectPoint({world.x, world.y, world.z}, viewport, projection, view);
