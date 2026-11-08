@@ -75,7 +75,7 @@ bool Inject(DWORD pid, const std::string& dllPath) {
     // Write the DLL path into the target process.
     SIZE_T written = 0;
     if (!WriteProcessMemory(process, remoteMemory, dllPath.c_str(), pathBytes,
-                            &written, FALSE) ||
+                            &written) ||
         written != pathBytes) {
         std::printf("[!] WriteProcessMemory failed (error %lu).\n", GetLastError());
         VirtualFreeEx(process, remoteMemory, 0, MEM_RELEASE);
