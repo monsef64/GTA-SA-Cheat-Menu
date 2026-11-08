@@ -74,7 +74,9 @@ jobs:
              /Fo:build\ ^
              third_party\minhook\src\buffer.c ^
              third_party\minhook\src\hook.c ^
-             third_party\minhook\src\trampoline.c
+             third_party\minhook\src\trampoline.c ^
+             third_party\minhook\src\hde\hde32.c ^
+             third_party\minhook\src\hde\hde64.c
 
       - name: Link SAImGuiMenu.dll
         shell: cmd
@@ -162,7 +164,9 @@ jobs:
              /Fo:build\ ^
              third_party\minhook\src\buffer.c ^
              third_party\minhook\src\hook.c ^
-             third_party\minhook\src\trampoline.c
+             third_party\minhook\src\trampoline.c ^
+             third_party\minhook\src\hde\hde32.c ^
+             third_party\minhook\src\hde\hde64.c
 
           link /nologo /DLL /OUT:build\SAImGuiMenu-debug.dll ^
                /IMPLIB:build\SAImGuiMenu-debug.lib ^

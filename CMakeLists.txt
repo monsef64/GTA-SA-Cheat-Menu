@@ -41,6 +41,11 @@ add_library(SAMinHook STATIC
     ${MINHOOK_DIR}/src/buffer.c
     ${MINHOOK_DIR}/src/hook.c
     ${MINHOOK_DIR}/src/trampoline.c
+    # The Hacker Disassembler Engine. MinHook's trampoline calls
+    # hde32_disasm / hde64_disasm, so these have to be compiled in or the
+    # link fails with an unresolved external.
+    ${MINHOOK_DIR}/src/hde/hde32.c
+    ${MINHOOK_DIR}/src/hde/hde64.c
 )
 target_include_directories(SAMinHook PUBLIC ${MINHOOK_DIR}/include)
 

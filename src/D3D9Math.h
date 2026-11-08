@@ -27,8 +27,11 @@
 
 namespace sa {
 
-// A row-major 4x4 matrix, laid out exactly like D3DXMATRIX so it can be
-// passed straight to IDirect3DDevice9::GetTransform().
+// A row-major 4x4 matrix, laid out exactly like D3DMATRIX (and therefore
+// like D3DXMATRIX too).
+//
+// IDirect3DDevice9::GetTransform() hands back a D3DMATRIX, which is
+// declared in d3d9.h and so needs no DirectX SDK.
 struct Matrix4x4 {
     union {
         struct {
@@ -94,6 +97,24 @@ inline Matrix4x4 IdentityMatrix() {
     }
     result._11 = result._22 = result._33 = result._44 = 1.0f;
     return result;
+}
+
+// Reads the current transform for a given D3D transform state.
+//
+// GetTransform() takes a D3DMATRIX*, which is declared in d3d9.h and so is
+// always available. D3DMATRIX and Matrix4x4 have the same layout, so the
+// result is read straight into our own type.
+inline HRESULT GetTransformMatrix(IDirect3DDevice9* device, D3DTS state,
+                                  Matrix4x4* out) {
+    if (device == nullptr || out == nullptr) return E_FAIL;
+
+    D3DMATRIX matrix;
+    const HRESULT result = device->GetTransform(state, &matrix);
+    if (FAILED(result)) return result;
+
+    // D3DMATRIX and Matrix4x4 have the same layout, so the copy is safe.
+    *out = *reinterpret_cast<const Matrix4x4*>(&matrix);
+    return S_OK;
 }
 
 // Projects a world-space point into screen space, the same way

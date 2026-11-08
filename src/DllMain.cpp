@@ -36,7 +36,12 @@ DWORD WINAPI AttachThread(LPVOID parameter) {
 
 }  // namespace
 
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
+// The DLL entry point.
+//
+// This has to have C linkage: without extern "C" the C++ compiler mangles
+// the name to _DllMain@12, and the loader looks for the plain "DllMain"
+// symbol when it maps the DLL.
+extern "C" BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
     (void)reserved;
 
     switch (reason) {

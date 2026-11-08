@@ -68,6 +68,8 @@ cl /nologo /LD /O2 /MT /W3 /EHsc /std:c++17 ^
    third_party\minhook\src\buffer.c ^
    third_party\minhook\src\hook.c ^
    third_party\minhook\src\trampoline.c ^
+   third_party\minhook\src\hde\hde32.c ^
+   third_party\minhook\src\hde\hde64.c ^
    /link /OUT:build\SAImGuiMenu.dll d3d9.lib user32.lib gdi32.lib shell32.lib
 
 if errorlevel 1 (
