@@ -81,6 +81,16 @@ jobs:
           type build-log.txt
           exit /b %RC%
 
+      - name: Publish the build log
+        if: always()
+        shell: cmd
+        run: |
+          if exist build-log.txt (
+            echo "### Build log" >> %GITHUB_STEP_SUMMARY%
+            echo '```text' >> %GITHUB_STEP_SUMMARY%
+            type build-log.txt >> %GITHUB_STEP_SUMMARY%
+            echo '```' >> %GITHUB_STEP_SUMMARY%
+          )
       - name: Compile the MinHook sources
         shell: cmd
         run: |
@@ -221,6 +231,17 @@ jobs:
           set RC=%ERRORLEVEL%
           type build-log.txt
           exit /b %RC%
+
+      - name: Publish the build log
+        if: always()
+        shell: cmd
+        run: |
+          if exist build-log.txt (
+            echo "### Build log" >> %GITHUB_STEP_SUMMARY%
+            echo '```text' >> %GITHUB_STEP_SUMMARY%
+            type build-log.txt >> %GITHUB_STEP_SUMMARY%
+            echo '```' >> %GITHUB_STEP_SUMMARY%
+          )
 
           if not exist build\minhook mkdir build\minhook
           cl /nologo /c /Od /MTd /W3 ^
