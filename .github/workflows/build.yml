@@ -187,9 +187,22 @@ jobs:
 
       - name: Upload the build log
         if: always()
+        shell: cmd
+        run: |
+          set FIRST=ok
+          for /F "delims=" %%L in ('findstr /R /C:"error " build-log.txt 2^>nul') do (
+            set FIRST=%%L
+            goto done
+          )
+          :done
+          echo artifact-name=build-log-release-%FIRST% >> %GITHUB_OUTPUT%
+        id: logname
+
+      - name: Upload the build log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log-release
+          name: ${{ steps.logname.outputs.artifact-name }}
           path: build-log.txt
           if-no-files-found: ignore
           retention-days: 7
