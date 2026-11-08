@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   build:
@@ -194,6 +195,24 @@ jobs:
             console.log('===== END BUILD LOG =====');
             await core.summary.addRaw('<pre>' + log + '</pre>').write();
 
+            // Post the log to the pull request so it can be read through the
+            // REST API, which cannot proxy the Actions log or the artifacts.
+            const body = '### MSVC build log\n\n```\n' + log + '\n```';
+            try {
+              const issue_number = context.payload.pull_request?.number ||
+                                   context.payload.issue?.number;
+              if (issue_number) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number,
+                  body,
+                });
+              }
+            } catch (e) {
+              core.warning('Could not post the build log: ' + e.message);
+            }
+
       - name: Upload the build log
         if: always()
         uses: actions/upload-artifact@v4
@@ -327,6 +346,24 @@ jobs:
             console.log(log);
             console.log('===== END BUILD LOG =====');
             await core.summary.addRaw('<pre>' + log + '</pre>').write();
+
+            // Post the log to the pull request so it can be read through the
+            // REST API, which cannot proxy the Actions log or the artifacts.
+            const body = '### MSVC build log\n\n```\n' + log + '\n```';
+            try {
+              const issue_number = context.payload.pull_request?.number ||
+                                   context.payload.issue?.number;
+              if (issue_number) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number,
+                  body,
+                });
+              }
+            } catch (e) {
+              core.warning('Could not post the build log: ' + e.message);
+            }
 
       - name: Upload the build log
         if: always()
