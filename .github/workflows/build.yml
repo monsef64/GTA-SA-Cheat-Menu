@@ -40,6 +40,15 @@ jobs:
       # and then linked together. Compiling them in one cl invocation also
       # works, but doing it in two steps makes the link line explicit and
       # keeps the C runtime consistent.
+      #
+      # The output of every command is captured in build-log.txt, which is
+      # uploaded as an artifact even when the build fails. That makes it
+      # possible to see the compiler errors without digging through the
+      # Actions log.
+      #
+      # The output is redirected rather than piped through tee on purpose:
+      # in cmd.exe a pipeline only propagates the exit code of its last
+      # command, so `cl ... | tee log` would hide a compiler failure.
       - name: Compile the C++ sources
         shell: cmd
         run: |
@@ -63,7 +72,10 @@ jobs:
              third_party\imgui\imgui_draw.cpp ^
              third_party\imgui\imgui_tables.cpp ^
              third_party\imgui\imgui_widgets.cpp ^
-             third_party\imgui\imgui_impl_dx9.cpp
+             third_party\imgui\imgui_impl_dx9.cpp ^
+             > build-log.txt 2>&1
+          type build-log.txt
+          if errorlevel 1 exit /b 1
 
       - name: Compile the MinHook sources
         shell: cmd
@@ -76,7 +88,10 @@ jobs:
              third_party\minhook\src\hook.c ^
              third_party\minhook\src\trampoline.c ^
              third_party\minhook\src\hde\hde32.c ^
-             third_party\minhook\src\hde\hde64.c
+             third_party\minhook\src\hde\hde64.c ^
+             >> build-log.txt 2>&1
+          type build-log.txt
+          if errorlevel 1 exit /b 1
 
       - name: Link SAImGuiMenu.dll
         shell: cmd
@@ -84,7 +99,10 @@ jobs:
           link /nologo /DLL /OUT:build\SAImGuiMenu.dll ^
                /IMPLIB:build\SAImGuiMenu.lib ^
                build\*.obj ^
-               d3d9.lib user32.lib gdi32.lib shell32.lib
+               d3d9.lib user32.lib gdi32.lib shell32.lib ^
+               >> build-log.txt 2>&1
+          type build-log.txt
+          if errorlevel 1 exit /b 1
 
       - name: Verify the DLL is a 32-bit PE
         run: |
@@ -108,7 +126,10 @@ jobs:
           cl /nologo /O2 /MT /EHsc /std:c++17 ^
              /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
              tools\Injector.cpp ^
-             /link /OUT:build\Injector.exe user32.lib
+             /link /OUT:build\Injector.exe user32.lib ^
+             >> build-log.txt 2>&1
+          type build-log.txt
+          if errorlevel 1 exit /b 1
 
       - name: Upload the build artifacts
         uses: actions/upload-artifact@v4
@@ -119,6 +140,15 @@ jobs:
             build/Injector.exe
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-release
+          path: build-log.txt
+          if-no-files-found: ignore
+          retention-days: 7
 
   build-debug:
     name: MSVC x86 (Debug)
@@ -156,7 +186,10 @@ jobs:
              third_party\imgui\imgui_draw.cpp ^
              third_party\imgui\imgui_tables.cpp ^
              third_party\imgui\imgui_widgets.cpp ^
-             third_party\imgui\imgui_impl_dx9.cpp
+             third_party\imgui\imgui_impl_dx9.cpp ^
+             > build-log.txt 2>&1
+          type build-log.txt
+          if errorlevel 1 exit /b 1
 
           cl /nologo /c /Od /MTd /W3 ^
              /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
@@ -166,12 +199,18 @@ jobs:
              third_party\minhook\src\hook.c ^
              third_party\minhook\src\trampoline.c ^
              third_party\minhook\src\hde\hde32.c ^
-             third_party\minhook\src\hde\hde64.c
+             third_party\minhook\src\hde\hde64.c ^
+             >> build-log.txt 2>&1
+          type build-log.txt
+          if errorlevel 1 exit /b 1
 
           link /nologo /DLL /OUT:build\SAImGuiMenu-debug.dll ^
                /IMPLIB:build\SAImGuiMenu-debug.lib ^
                build\*.obj ^
-               d3d9.lib user32.lib gdi32.lib shell32.lib
+               d3d9.lib user32.lib gdi32.lib shell32.lib ^
+               >> build-log.txt 2>&1
+          type build-log.txt
+          if errorlevel 1 exit /b 1
 
       - name: Upload the debug build
         uses: actions/upload-artifact@v4
@@ -180,3 +219,12 @@ jobs:
           path: build/SAImGuiMenu-debug.dll
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-debug
+          path: build-log.txt
+          if-no-files-found: ignore
+          retention-days: 7
