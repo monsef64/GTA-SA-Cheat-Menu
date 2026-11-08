@@ -17,7 +17,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   build:
@@ -80,8 +79,6 @@ jobs:
              > build-log.txt 2>&1
           set RC=%ERRORLEVEL%
           type build-log.txt
-          echo. Log size:
-          for %%F in (build-log.txt) do echo %%~zF bytes
           exit /b %RC%
 
       - name: Compile the MinHook sources
@@ -100,8 +97,6 @@ jobs:
              >> build-log.txt 2>&1
           set RC=%ERRORLEVEL%
           type build-log.txt
-          echo. Log size:
-          for %%F in (build-log.txt) do echo %%~zF bytes
           exit /b %RC%
 
       - name: Link SAImGuiMenu.dll
@@ -134,8 +129,6 @@ jobs:
                >> build-log.txt 2>&1
           set RC=%ERRORLEVEL%
           type build-log.txt
-          echo. Log size:
-          for %%F in (build-log.txt) do echo %%~zF bytes
           exit /b %RC%
 
       - name: Verify the DLL is a 32-bit PE
@@ -164,8 +157,6 @@ jobs:
              >> build-log.txt 2>&1
           set RC=%ERRORLEVEL%
           type build-log.txt
-          echo. Log size:
-          for %%F in (build-log.txt) do echo %%~zF bytes
           exit /b %RC%
 
       - name: Upload the build artifacts
@@ -194,24 +185,6 @@ jobs:
             console.log(log);
             console.log('===== END BUILD LOG =====');
             await core.summary.addRaw('<pre>' + log + '</pre>').write();
-
-            // Post the log to the pull request so it can be read through the
-            // REST API, which cannot proxy the Actions log or the artifacts.
-            const body = '### MSVC build log\n\n```\n' + log + '\n```';
-            try {
-              const issue_number = context.payload.pull_request?.number ||
-                                   context.payload.issue?.number;
-              if (issue_number) {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number,
-                  body,
-                });
-              }
-            } catch (e) {
-              core.warning('Could not post the build log: ' + e.message);
-            }
 
       - name: Upload the build log
         if: always()
@@ -264,8 +237,6 @@ jobs:
              > build-log.txt 2>&1
           set RC=%ERRORLEVEL%
           type build-log.txt
-          echo. Log size:
-          for %%F in (build-log.txt) do echo %%~zF bytes
           exit /b %RC%
 
       - name: Compile the MinHook sources
@@ -284,8 +255,6 @@ jobs:
              >> build-log.txt 2>&1
           set RC=%ERRORLEVEL%
           type build-log.txt
-          echo. Log size:
-          for %%F in (build-log.txt) do echo %%~zF bytes
           exit /b %RC%
 
       - name: Link SAImGuiMenu.dll
@@ -318,8 +287,6 @@ jobs:
                >> build-log.txt 2>&1
           set RC=%ERRORLEVEL%
           type build-log.txt
-          echo. Log size:
-          for %%F in (build-log.txt) do echo %%~zF bytes
           exit /b %RC%
 
       - name: Upload the debug build
@@ -346,24 +313,6 @@ jobs:
             console.log(log);
             console.log('===== END BUILD LOG =====');
             await core.summary.addRaw('<pre>' + log + '</pre>').write();
-
-            // Post the log to the pull request so it can be read through the
-            // REST API, which cannot proxy the Actions log or the artifacts.
-            const body = '### MSVC build log\n\n```\n' + log + '\n```';
-            try {
-              const issue_number = context.payload.pull_request?.number ||
-                                   context.payload.issue?.number;
-              if (issue_number) {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number,
-                  body,
-                });
-              }
-            } catch (e) {
-              core.warning('Could not post the build log: ' + e.message);
-            }
 
       - name: Upload the build log
         if: always()
