@@ -149,6 +149,26 @@ After injecting, press **INSERT** to toggle the menu.
 > `gta_sa.exe` must be running **as administrator** if the game is installed
 > in `Program Files`, otherwise the DLL will not load.
 
+### How the overlay gets its input
+
+The overlay renders ImGui directly onto the game's own Direct3D 9 device
+instead of creating a window of its own, so there is no ImGui Win32
+platform backend involved. Everything a platform backend would normally
+provide is filled in by hand in `src/Hook.cpp`:
+
+- `io.DisplaySize` is taken from the D3D9 viewport every frame, so the
+  overlay always matches the back buffer and follows a resolution change
+  on its own.
+- `io.DeltaTime` falls back to 1/60 when the game has not supplied one.
+- Mouse movement, the three mouse buttons, the wheel, key presses and
+  character input are forwarded from the game's window procedure with
+  ImGui's event API (`AddMousePosEvent`, `AddMouseButtonEvent`,
+  `AddMouseWheelEvent`, `AddKeyEvent`, `AddInputCharacter`).
+
+Input is only consumed while the menu is open, and only when ImGui
+actually asks for it, so the game keeps its normal controls otherwise.
+**INSERT** is reserved for toggling the menu and never reaches the game.
+
 ---
 
 ## Project layout
@@ -193,6 +213,36 @@ this project is invalid there. The menu is built for the original 32-bit
 
 Using the menu also sets the game's *"has ever cheated"* flag when you use the
 original cheat switches, so the game will warn you when saving.
+
+---
+
+## Troubleshooting
+
+**`Assertion failed! ... Invalid DisplaySize value!`**
+
+This assertion comes from `third_party/imgui/imgui.cpp` and means ImGui
+was asked to start a frame without knowing how large the screen is. In
+this project that happens when `io.DisplaySize` is left at `(0, 0)`,
+which makes the DX9 backend build a zero sized viewport.
+
+`UpdateImGuiFrameState()` in `src/Hook.cpp` sets it from the D3D9
+viewport before every frame, so this should not happen with a current
+build. If you still see it, the DLL was built from an older revision —
+rebuild it from the latest source and make sure the injected DLL is the
+one you just built.
+
+**The menu shows up but clicking does nothing**
+
+The overlay needs the game's window procedure to forward mouse and
+keyboard events to ImGui. Older builds only swallowed the messages and
+never produced ImGui events, so the menu was completely unresponsive.
+Rebuild from the latest source if you see this.
+
+**The menu does not appear at all**
+
+Check that the DLL actually loaded (e.g. with Process Hacker) and that
+**INSERT** reaches the game window — the game has to have focus for the
+window procedure to see the key press.
 
 ---
 
