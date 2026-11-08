@@ -6,7 +6,10 @@ REM  Builds a 32-bit DLL that can be injected into GTA_SA.EXE.
 REM
 REM  Requirements:
 REM    - Visual Studio 2019/2022 with the "Desktop development with C++" workload
-REM    - The DirectX SDK (June 2010) or the Windows 10 SDK (for d3dx9.h)
+REM    - The Windows 10 SDK (included with Visual Studio)
+REM
+REM  Note: no DirectX SDK is needed. The world-to-screen projection is
+REM  implemented in src\D3D9Math.h, so only d3d9.lib is linked.
 REM
 REM  Usage:  build_msvc.bat
 REM ===========================================================================
@@ -65,7 +68,7 @@ cl /nologo /LD /O2 /MT /W3 /EHsc /std:c++17 ^
    third_party\minhook\src\buffer.c ^
    third_party\minhook\src\hook.c ^
    third_party\minhook\src\trampoline.c ^
-   /link /OUT:build\SAImGuiMenu.dll d3d9.lib d3dx9.lib user32.lib gdi32.lib shell32.lib
+   /link /OUT:build\SAImGuiMenu.dll d3d9.lib user32.lib gdi32.lib shell32.lib
 
 if errorlevel 1 (
     echo.

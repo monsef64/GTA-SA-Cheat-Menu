@@ -1,7 +1,6 @@
 #include "Esp.h"
 
 #include <d3d9.h>
-#include <d3dx9.h>
 
 #include <algorithm>
 #include <cmath>
@@ -10,6 +9,7 @@
 #include "imgui.h"
 
 #include "Addresses.h"
+#include "D3D9Math.h"
 #include "Entities.h"
 #include "Hook.h"
 #include "Memory.h"
@@ -56,17 +56,13 @@ bool WorldToScreen(IDirect3DDevice9* device, const Vec3& world, float* outX, flo
     D3DVIEWPORT9 viewport;
     if (FAILED(device->GetViewport(&viewport))) return false;
 
-    D3DXMATRIX view;
-    D3DXMATRIX projection;
+    Matrix4x4 view;
+    Matrix4x4 projection;
     if (FAILED(device->GetTransform(D3DTS_VIEW, &view))) return false;
     if (FAILED(device->GetTransform(D3DTS_PROJECTION, &projection))) return false;
 
-    D3DXMATRIX worldMatrix;
-    D3DXMatrixIdentity(&worldMatrix);
-
-    D3DXVECTOR3 screen;
-    const D3DXVECTOR3 pos(world.x, world.y, world.z);
-    D3DXVec3Project(&screen, &pos, &viewport, &projection, &view, &worldMatrix);
+    const Vector3 screen =
+        ProjectPoint({world.x, world.y, world.z}, viewport, projection, view);
 
     // z outside [0, 1] means the point is behind the camera or clipped.
     if (screen.z < 0.0f || screen.z > 1.0f) return false;

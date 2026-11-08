@@ -46,10 +46,7 @@ target_include_directories(SAMinHook PUBLIC ${MINHOOK_DIR}/include)
 
 add_library(SAImGuiMenu SHARED ${SA_MENU_SOURCES})
 target_include_directories(SAImGuiMenu PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(SAImGuiMenu PRIVATE SAImGui SAMinHook d3d9 d3dx9)
-
-# The D3DX9 helpers are only used for the world-to-screen projection.
-target_compile_definitions(SAImGuiMenu PRIVATE D3D_DEBUG)
+target_link_libraries(SAImGuiMenu PRIVATE SAImGui SAMinHook d3d9)
 
 set_target_properties(SAImGuiMenu PROPERTIES
     OUTPUT_NAME "SAImGuiMenu"

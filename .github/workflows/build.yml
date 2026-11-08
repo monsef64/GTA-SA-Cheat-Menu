@@ -1,0 +1,178 @@
+name: Build
+
+# Build the cheat menu DLL with MSVC on a Windows runner.
+#
+# The game is a 32-bit process, so everything is compiled for x86 (Win32).
+# The build only needs Visual Studio and the Windows SDK - the world-to-screen
+# projection is implemented in src/D3D9Math.h, so no DirectX SDK is required.
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - 'arena/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: MSVC x86 (Release)
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up the MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Show the compiler version
+        shell: cmd
+        run: cl
+
+      # The C++ sources and the C sources (MinHook) are compiled separately
+      # and then linked together. Compiling them in one cl invocation also
+      # works, but doing it in two steps makes the link line explicit and
+      # keeps the C runtime consistent.
+      - name: Compile the C++ sources
+        shell: cmd
+        run: |
+          if not exist build mkdir build
+          cl /nologo /c /O2 /MT /W3 /EHsc /std:c++17 ^
+             /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
+             /Isrc /Ithird_party\imgui /Ithird_party\minhook\include ^
+             /Fo:build\ ^
+             src\Cheats.cpp ^
+             src\DllMain.cpp ^
+             src\Entities.cpp ^
+             src\Esp.cpp ^
+             src\Hook.cpp ^
+             src\Memory.cpp ^
+             src\Menu.cpp ^
+             src\PedModels.cpp ^
+             src\Spawner.cpp ^
+             src\VehicleModels.cpp ^
+             src\Weapons.cpp ^
+             third_party\imgui\imgui.cpp ^
+             third_party\imgui\imgui_draw.cpp ^
+             third_party\imgui\imgui_tables.cpp ^
+             third_party\imgui\imgui_widgets.cpp ^
+             third_party\imgui\imgui_impl_dx9.cpp
+
+      - name: Compile the MinHook sources
+        shell: cmd
+        run: |
+          cl /nologo /c /O2 /MT /W3 ^
+             /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
+             /Ithird_party\minhook\include ^
+             /Fo:build\ ^
+             third_party\minhook\src\buffer.c ^
+             third_party\minhook\src\hook.c ^
+             third_party\minhook\src\trampoline.c
+
+      - name: Link SAImGuiMenu.dll
+        shell: cmd
+        run: |
+          link /nologo /DLL /OUT:build\SAImGuiMenu.dll ^
+               /IMPLIB:build\SAImGuiMenu.lib ^
+               build\*.obj ^
+               d3d9.lib user32.lib gdi32.lib shell32.lib
+
+      - name: Verify the DLL is a 32-bit PE
+        run: |
+          $dll = Get-Item build\SAImGuiMenu.dll
+          Write-Host "Built $($dll.Name) - $($dll.Length) bytes"
+
+          # The PE header's machine field must be 0x014c (IMAGE_FILE_MACHINE_I386)
+          # for a 32-bit DLL, otherwise the game cannot load it.
+          $bytes = [System.IO.File]::ReadAllBytes($dll.FullName)
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          if ($machine -ne 0x014c) {
+            Write-Error "Expected an x86 (0x014c) PE image, got 0x$('{0:x4}' -f $machine)"
+            exit 1
+          }
+          Write-Host "OK: x86 PE image (machine 0x014c)"
+
+      - name: Build the injector helper
+        shell: cmd
+        run: |
+          cl /nologo /O2 /MT /EHsc /std:c++17 ^
+             /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
+             tools\Injector.cpp ^
+             /link /OUT:build\Injector.exe user32.lib
+
+      - name: Upload the build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SAImGuiMenu-x86
+          path: |
+            build/SAImGuiMenu.dll
+            build/Injector.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  build-debug:
+    name: MSVC x86 (Debug)
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up the MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Build SAImGuiMenu.dll (Debug)
+        shell: cmd
+        run: |
+          if not exist build mkdir build
+          cl /nologo /c /Od /MTd /W3 /EHsc /std:c++17 /Zi ^
+             /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
+             /Isrc /Ithird_party\imgui /Ithird_party\minhook\include ^
+             /Fo:build\ ^
+             src\Cheats.cpp ^
+             src\DllMain.cpp ^
+             src\Entities.cpp ^
+             src\Esp.cpp ^
+             src\Hook.cpp ^
+             src\Memory.cpp ^
+             src\Menu.cpp ^
+             src\PedModels.cpp ^
+             src\Spawner.cpp ^
+             src\VehicleModels.cpp ^
+             src\Weapons.cpp ^
+             third_party\imgui\imgui.cpp ^
+             third_party\imgui\imgui_draw.cpp ^
+             third_party\imgui\imgui_tables.cpp ^
+             third_party\imgui\imgui_widgets.cpp ^
+             third_party\imgui\imgui_impl_dx9.cpp
+
+          cl /nologo /c /Od /MTd /W3 ^
+             /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
+             /Ithird_party\minhook\include ^
+             /Fo:build\ ^
+             third_party\minhook\src\buffer.c ^
+             third_party\minhook\src\hook.c ^
+             third_party\minhook\src\trampoline.c
+
+          link /nologo /DLL /OUT:build\SAImGuiMenu-debug.dll ^
+               /IMPLIB:build\SAImGuiMenu-debug.lib ^
+               build\*.obj ^
+               d3d9.lib user32.lib gdi32.lib shell32.lib
+
+      - name: Upload the debug build
+        uses: actions/upload-artifact@v4
+        with:
+          name: SAImGuiMenu-x86-debug
+          path: build/SAImGuiMenu-debug.dll
+          if-no-files-found: error
+          retention-days: 30

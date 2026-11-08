@@ -85,7 +85,26 @@ game, plus a separate world-space overlay for the ESP.
 
 The game is a **32-bit** process, so the DLL **must** be built for **Win32**.
 
-### Visual Studio (recommended)
+### GitHub Actions (recommended)
+
+The repository has a workflow at
+[`.github/workflows/build.yml`](.github/workflows/build.yml) that builds the
+DLL with **MSVC** on a Windows runner — no local toolchain needed.
+
+* It runs on every push and pull request (and on demand via
+  *Workflow dispatch*).
+* The **Release** job produces `SAImGuiMenu.dll` (x86) plus the optional
+  `Injector.exe`; the **Debug** job produces `SAImGuiMenu-debug.dll`.
+* Both are uploaded as build artifacts. Download them from the **Actions**
+  tab of the repository → pick a run → **Artifacts** → unzip.
+* The workflow also asserts that the produced DLL really is a 32-bit PE
+  image, so a misconfigured build fails instead of shipping a DLL the game
+  cannot load.
+
+To get the artifacts without touching GitHub, use one of the local options
+below.
+
+### Visual Studio
 
 1. Open `build_msvc/SAImGuiMenu.sln`.
 2. Make sure the platform is **Win32** (not x64) and the configuration is
@@ -108,12 +127,11 @@ cmake -B build -A Win32
 cmake --build build --config Release
 ```
 
-> `d3dx9.h` (used only for `D3DXVec3Project`) ships with the **DirectX SDK
-> (June 2010)**. The Windows 10 SDK does not include it; if the build fails
-> with `Cannot open include file: 'd3dx9.h'`, install the June 2010 SDK and
-> add its `Include`/`Lib` folders to your include/library paths, or replace
-> the projection call with the hand-written matrix version in
-> `src/Esp.cpp`.
+> **No DirectX SDK is required.** The world-to-screen projection is
+> implemented in `src/D3D9Math.h` and only `d3d9.lib` is linked. (It used to
+> call `D3DXVec3Project`, which needs the old DirectX SDK from June 2010;
+> the replacement is a faithful reimplementation that was verified against
+> the reference algorithm to within float rounding.)
 
 ---
 
@@ -141,6 +159,7 @@ src/
   Platform.h       Calling-convention shim (MSVC vs GCC)
   Memory.h/.cpp    Safe read/write helpers, vector maths, game text box
   Entities.h/.cpp  Ped & vehicle pool walking, entity classification
+  D3D9Math.h       World-to-screen projection (replaces d3dx9.h)
   Esp.h/.cpp       World-to-screen projection and overlay drawing
   Cheats.h/.cpp    The cheat functions the menu calls
   Spawner.h/.cpp   Vehicle / ped creation and deletion
@@ -154,7 +173,8 @@ third_party/
   imgui/           Dear ImGui v1.90.9 (MIT)
   minhook/         MinHook (BSD 2-clause)
 build_msvc/        Visual Studio solution + project
-tools/             Helper scripts
+.github/workflows/build.yml   MSVC x86 build on GitHub Actions
+tools/             Helper scripts (Injector.cpp)
 ```
 
 ---
