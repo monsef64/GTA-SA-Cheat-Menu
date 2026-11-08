@@ -14,6 +14,22 @@
 namespace sa {
 namespace {
 
+// The mouse position and the wheel delta are packed into the LPARAM /
+// WPARAM of the window messages. The GET_X_LPARAM, GET_Y_LPARAM and
+// GET_WHEEL_DELTA_WPARAM helpers normally come from <windowsx.h>, which is
+// not needed here, so they are spelled out instead.
+inline int GetXLParam(LPARAM lParam) {
+    return static_cast<short>(static_cast<WORD>(lParam));
+}
+
+inline int GetYLParam(LPARAM lParam) {
+    return static_cast<short>(static_cast<WORD>(static_cast<DWORD>(lParam) >> 16));
+}
+
+inline short GetWheelDelta(WPARAM wParam) {
+    return static_cast<short>(static_cast<WORD>(wParam) >> 16);
+}
+
 // The game's main window handle is stored at 0xC17054.
 constexpr uintptr_t kWindowHandleAddress = 0xC17054;
 
@@ -36,6 +52,37 @@ void RenderMenu();
 
 void DrawEspOverlay();
 
+// Feeds ImGui the information it would normally get from a platform backend.
+//
+// There is no ImGui Win32 backend here: the overlay is drawn straight onto
+// the game's own D3D9 device, so the values a platform backend would set up
+// have to be filled in by hand. io.DisplaySize in particular is required -
+// without it ImGui builds its draw data with a zero sized viewport, which
+// trips the "Invalid DisplaySize value!" assertion in imgui.cpp.
+void UpdateImGuiFrameState(IDirect3DDevice9* device) {
+    if (device == nullptr) return;
+
+    ImGuiIO& io = ImGui::GetIO();
+
+    // The draw data is sized from io.DisplaySize, and the DX9 backend turns
+    // that into the back buffer viewport it renders into.
+    D3DVIEWPORT9 viewport;
+    if (SUCCEEDED(device->GetViewport(&viewport)) && viewport.Width > 0 &&
+        viewport.Height > 0) {
+        io.DisplaySize = ImVec2(static_cast<float>(viewport.Width),
+                                static_cast<float>(viewport.Height));
+    }
+
+    // The game renders at native resolution, so there is no scaling.
+    io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
+
+    // ImGui uses the delta time for animations and for things like the
+    // double-click interval. The game runs at a fixed frame rate, but the
+    // actual frame time is not known here, so a sensible default is used.
+    // A zero delta would make every animation-based widget freeze.
+    if (io.DeltaTime <= 0.0f) io.DeltaTime = 1.0f / 60.0f;
+}
+
 // --- Hooked functions -------------------------------------------------------
 
 HRESULT STDMETHODCALLTYPE HookedEndScene(IDirect3DDevice9* device) {
@@ -47,6 +94,10 @@ HRESULT STDMETHODCALLTYPE HookedEndScene(IDirect3DDevice9* device) {
     }
 
     if (!EnsureImGuiInitialized(device)) return S_OK;
+
+    // The display size has to be known before the frame is started,
+    // otherwise ImGui builds its draw data with a zero sized viewport.
+    UpdateImGuiFrameState(device);
 
     ImGui_ImplDX9_NewFrame();
     ImGui::NewFrame();
@@ -71,35 +122,177 @@ HRESULT STDMETHODCALLTYPE HookedReset(IDirect3DDevice9* device, D3DPRESENT_PARAM
     return hr;
 }
 
+// --- Input forwarding -------------------------------------------------------
+
+// Maps a Win32 virtual key code onto the matching ImGui key.
+//
+// ImGui 1.90 does not ship a Win32 key translation table, so the mapping is
+// written out here. Only the keys the menu actually needs are covered:
+// letters, digits, the editing keys, the modifiers and the function keys.
+ImGuiKey TranslateVirtualKey(WPARAM virtualKey) {
+    switch (virtualKey) {
+        case VK_BACK:   return ImGuiKey_Backspace;
+        case VK_TAB:    return ImGuiKey_Tab;
+        case VK_RETURN: return ImGuiKey_Enter;
+        case VK_PAUSE:  return ImGuiKey_Pause;
+        case VK_CAPITAL: return ImGuiKey_CapsLock;
+        case VK_ESCAPE: return ImGuiKey_Escape;
+        case VK_SPACE:  return ImGuiKey_Space;
+        case VK_PRIOR:  return ImGuiKey_PageUp;
+        case VK_NEXT:   return ImGuiKey_PageDown;
+        case VK_END:    return ImGuiKey_End;
+        case VK_HOME:   return ImGuiKey_Home;
+        case VK_LEFT:   return ImGuiKey_LeftArrow;
+        case VK_RIGHT:  return ImGuiKey_RightArrow;
+        case VK_UP:     return ImGuiKey_UpArrow;
+        case VK_DOWN:   return ImGuiKey_DownArrow;
+        case VK_SNAPSHOT: return ImGuiKey_PrintScreen;
+        case VK_INSERT: return ImGuiKey_Insert;
+        case VK_DELETE: return ImGuiKey_Delete;
+        case VK_OEM_1:  return ImGuiKey_Semicolon;
+        case VK_OEM_PLUS: return ImGuiKey_Equal;
+        case VK_OEM_COMMA: return ImGuiKey_Comma;
+        case VK_OEM_MINUS: return ImGuiKey_Minus;
+        case VK_OEM_PERIOD: return ImGuiKey_Period;
+        case VK_OEM_2:  return ImGuiKey_Slash;
+        case VK_OEM_3:  return ImGuiKey_GraveAccent;
+        case VK_OEM_4:  return ImGuiKey_LeftBracket;
+        case VK_OEM_5:  return ImGuiKey_Backslash;
+        case VK_OEM_6:  return ImGuiKey_RightBracket;
+        case VK_OEM_7:  return ImGuiKey_Apostrophe;
+        case VK_NUMPAD0: return ImGuiKey_Keypad0;
+        case VK_NUMPAD1: return ImGuiKey_Keypad1;
+        case VK_NUMPAD2: return ImGuiKey_Keypad2;
+        case VK_NUMPAD3: return ImGuiKey_Keypad3;
+        case VK_NUMPAD4: return ImGuiKey_Keypad4;
+        case VK_NUMPAD5: return ImGuiKey_Keypad5;
+        case VK_NUMPAD6: return ImGuiKey_Keypad6;
+        case VK_NUMPAD7: return ImGuiKey_Keypad7;
+        case VK_NUMPAD8: return ImGuiKey_Keypad8;
+        case VK_NUMPAD9: return ImGuiKey_Keypad9;
+        case VK_MULTIPLY: return ImGuiKey_KeypadMultiply;
+        case VK_ADD:      return ImGuiKey_KeypadAdd;
+        case VK_SUBTRACT: return ImGuiKey_KeypadSubtract;
+        case VK_DECIMAL:  return ImGuiKey_KeypadDecimal;
+        case VK_DIVIDE:   return ImGuiKey_KeypadDivide;
+        case VK_NUMLOCK:  return ImGuiKey_NumLock;
+        case VK_SCROLL:   return ImGuiKey_ScrollLock;
+        case VK_LCONTROL: return ImGuiKey_LeftCtrl;
+        case VK_LSHIFT:   return ImGuiKey_LeftShift;
+        case VK_LMENU:    return ImGuiKey_LeftAlt;
+        case VK_RCONTROL: return ImGuiKey_RightCtrl;
+        case VK_RSHIFT:   return ImGuiKey_RightShift;
+        case VK_RMENU:    return ImGuiKey_RightAlt;
+        case VK_APPS:     return ImGuiKey_Menu;
+        default: break;
+    }
+
+    // '0' - '9'
+    if (virtualKey >= '0' && virtualKey <= '9') {
+        return static_cast<ImGuiKey>(static_cast<int>(ImGuiKey_0) +
+                                     (static_cast<int>(virtualKey) - '0'));
+    }
+    // 'A' - 'Z'
+    if (virtualKey >= 'A' && virtualKey <= 'Z') {
+        return static_cast<ImGuiKey>(static_cast<int>(ImGuiKey_A) +
+                                     (static_cast<int>(virtualKey) - 'A'));
+    }
+    // F1 - F12
+    if (virtualKey >= VK_F1 && virtualKey <= VK_F12) {
+        return static_cast<ImGuiKey>(static_cast<int>(ImGuiKey_F1) +
+                                     (static_cast<int>(virtualKey) - VK_F1));
+    }
+
+    return ImGuiKey_None;
+}
+
+// Translates a Win32 mouse message into the matching ImGui event.
+// Returns true when the message was consumed by the overlay.
+bool ForwardMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
+    ImGuiIO& io = ImGui::GetIO();
+
+    switch (msg) {
+        case WM_MOUSEMOVE:
+            io.AddMousePosEvent(static_cast<float>(GetXLParam(lParam)),
+                               static_cast<float>(GetYLParam(lParam)));
+            return io.WantCaptureMouse;
+        case WM_LBUTTONDOWN:
+            io.AddMouseButtonEvent(0, true);
+            return io.WantCaptureMouse;
+        case WM_LBUTTONUP:
+            io.AddMouseButtonEvent(0, false);
+            return io.WantCaptureMouse;
+        case WM_RBUTTONDOWN:
+            io.AddMouseButtonEvent(1, true);
+            return io.WantCaptureMouse;
+        case WM_RBUTTONUP:
+            io.AddMouseButtonEvent(1, false);
+            return io.WantCaptureMouse;
+        case WM_MBUTTONDOWN:
+            io.AddMouseButtonEvent(2, true);
+            return io.WantCaptureMouse;
+        case WM_MBUTTONUP:
+            io.AddMouseButtonEvent(2, false);
+            return io.WantCaptureMouse;
+        case WM_MOUSEWHEEL: {
+            const float wheel = static_cast<float>(GetWheelDelta(wParam));
+            io.AddMouseWheelEvent(0.0f, wheel);
+            return io.WantCaptureMouse;
+        }
+        default:
+            return false;
+    }
+}
+
+// Translates a Win32 keyboard message into the matching ImGui event.
+// Returns true when the message was consumed by the overlay.
+bool ForwardKeyboardMessage(UINT msg, WPARAM wParam) {
+    ImGuiIO& io = ImGui::GetIO();
+
+    if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) {
+        // The Insert key is reserved for toggling the menu.
+        if (wParam != VK_INSERT) {
+            const ImGuiKey key = TranslateVirtualKey(wParam);
+            if (key != ImGuiKey_None) io.AddKeyEvent(key, true);
+        }
+        return io.WantCaptureKeyboard;
+    }
+
+    if (msg == WM_KEYUP || msg == WM_SYSKEYUP) {
+        if (wParam != VK_INSERT) {
+            const ImGuiKey key = TranslateVirtualKey(wParam);
+            if (key != ImGuiKey_None) io.AddKeyEvent(key, false);
+        }
+        return io.WantCaptureKeyboard;
+    }
+
+    if (msg == WM_CHAR) {
+        // WM_CHAR already carries the translated character, so it is forwarded
+        // as-is. That keeps the text fields working for non-ASCII layouts.
+        const unsigned int ch = static_cast<unsigned int>(wParam);
+        if (ch >= 32 && ch != 127) io.AddInputCharacter(ch);
+        return io.WantTextInput;
+    }
+
+    return false;
+}
+
 // --- Window procedure --------------------------------------------------------
 
 LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    if (g_imguiInitialized && ImGui::GetCurrentContext() != nullptr) {
-        // Let ImGui swallow the input while the menu is open.
-        if (ImGui::GetIO().WantCaptureKeyboard || ImGui::GetIO().WantCaptureMouse) {
-            switch (msg) {
-                case WM_MOUSEMOVE:
-                case WM_LBUTTONDOWN:
-                case WM_LBUTTONUP:
-                case WM_RBUTTONDOWN:
-                case WM_RBUTTONUP:
-                case WM_MBUTTONDOWN:
-                case WM_MBUTTONUP:
-                case WM_MOUSEWHEEL:
-                case WM_KEYDOWN:
-                case WM_KEYUP:
-                case WM_CHAR:
-                    return 0;
-                default:
-                    break;
-            }
-        }
-    }
-
-    // Toggle the menu with the Insert key.
+    // Toggle the menu with the Insert key. This is handled before anything
+    // else so that the menu can always be closed again.
     if (msg == WM_KEYDOWN && wParam == VK_INSERT) {
         ToggleMenu();
         return 0;
+    }
+
+    if (g_imguiInitialized && ImGui::GetCurrentContext() != nullptr) {
+        // The overlay only reacts to input while it is open.
+        if (g_menuOpen) {
+            if (ForwardMouseMessage(msg, wParam, lParam)) return 0;
+            if (ForwardKeyboardMessage(msg, wParam)) return 0;
+        }
     }
 
     return CallWindowProc(g_originalWndProc, hWnd, msg, wParam, lParam);
