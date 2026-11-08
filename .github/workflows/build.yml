@@ -79,6 +79,8 @@ jobs:
              > build-log.txt 2>&1
           set RC=%ERRORLEVEL%
           type build-log.txt
+          echo. Log size:
+          for %%F in (build-log.txt) do echo %%~zF bytes
           exit /b %RC%
 
       - name: Compile the MinHook sources
@@ -97,6 +99,8 @@ jobs:
              >> build-log.txt 2>&1
           set RC=%ERRORLEVEL%
           type build-log.txt
+          echo. Log size:
+          for %%F in (build-log.txt) do echo %%~zF bytes
           exit /b %RC%
 
       - name: Link SAImGuiMenu.dll
@@ -129,6 +133,8 @@ jobs:
                >> build-log.txt 2>&1
           set RC=%ERRORLEVEL%
           type build-log.txt
+          echo. Log size:
+          for %%F in (build-log.txt) do echo %%~zF bytes
           exit /b %RC%
 
       - name: Verify the DLL is a 32-bit PE
@@ -157,6 +163,8 @@ jobs:
              >> build-log.txt 2>&1
           set RC=%ERRORLEVEL%
           type build-log.txt
+          echo. Log size:
+          for %%F in (build-log.txt) do echo %%~zF bytes
           exit /b %RC%
 
       - name: Upload the build artifacts
@@ -234,6 +242,8 @@ jobs:
              > build-log.txt 2>&1
           set RC=%ERRORLEVEL%
           type build-log.txt
+          echo. Log size:
+          for %%F in (build-log.txt) do echo %%~zF bytes
           exit /b %RC%
 
       - name: Compile the MinHook sources
@@ -252,6 +262,8 @@ jobs:
              >> build-log.txt 2>&1
           set RC=%ERRORLEVEL%
           type build-log.txt
+          echo. Log size:
+          for %%F in (build-log.txt) do echo %%~zF bytes
           exit /b %RC%
 
       - name: Link SAImGuiMenu.dll
@@ -284,6 +296,8 @@ jobs:
                >> build-log.txt 2>&1
           set RC=%ERRORLEVEL%
           type build-log.txt
+          echo. Log size:
+          for %%F in (build-log.txt) do echo %%~zF bytes
           exit /b %RC%
 
       - name: Upload the debug build
