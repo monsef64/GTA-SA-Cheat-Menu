@@ -90,6 +90,12 @@ jobs:
             echo '```text' >> %GITHUB_STEP_SUMMARY%
             type build-log.txt >> %GITHUB_STEP_SUMMARY%
             echo '```' >> %GITHUB_STEP_SUMMARY%
+            REM Re-emit the compiler output as workflow commands so the
+            REM errors show up in the run's annotations.
+            findstr /R /C:"error C[0-9]*" /C:"error LNK[0-9]*" /C:"fatal error" build-log.txt > errors.txt
+            if exist errors.txt (
+              for /F "delims=" %%L in (errors.txt) do echo ::error %%L
+            )
           )
       - name: Compile the MinHook sources
         shell: cmd
@@ -241,6 +247,12 @@ jobs:
             echo '```text' >> %GITHUB_STEP_SUMMARY%
             type build-log.txt >> %GITHUB_STEP_SUMMARY%
             echo '```' >> %GITHUB_STEP_SUMMARY%
+            REM Re-emit the compiler output as workflow commands so the
+            REM errors show up in the run's annotations.
+            findstr /R /C:"error C[0-9]*" /C:"error LNK[0-9]*" /C:"fatal error" build-log.txt > errors.txt
+            if exist errors.txt (
+              for /F "delims=" %%L in (errors.txt) do echo ::error %%L
+            )
           )
 
           if not exist build\minhook mkdir build\minhook
