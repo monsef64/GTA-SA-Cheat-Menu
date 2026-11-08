@@ -189,6 +189,9 @@ jobs:
             } catch (e) {
               log = 'Could not read build-log.txt: ' + e.message;
             }
+            console.log('===== BUILD LOG =====');
+            console.log(log);
+            console.log('===== END BUILD LOG =====');
             await core.summary.addRaw('<pre>' + log + '</pre>').write();
 
       - name: Upload the build log
@@ -320,6 +323,9 @@ jobs:
             } catch (e) {
               log = 'Could not read build-log.txt: ' + e.message;
             }
+            console.log('===== BUILD LOG =====');
+            console.log(log);
+            console.log('===== END BUILD LOG =====');
             await core.summary.addRaw('<pre>' + log + '</pre>').write();
 
       - name: Upload the build log
