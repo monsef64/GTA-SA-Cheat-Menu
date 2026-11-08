@@ -45,12 +45,19 @@ WNDPROC g_originalWndProc = nullptr;
 bool g_menuOpen = true;
 bool g_hooksInstalled = false;
 bool g_imguiInitialized = false;
+bool g_insertWasDown = false;
+bool g_cursorReleased = false;
+int g_cursorShown = 0;
 
 // Forward declarations of the helpers used by the hooks.
 bool EnsureImGuiInitialized(IDirect3DDevice9* device);
 void RenderMenu();
 
 void DrawEspOverlay();
+
+// Cursor handling, see below.
+void ReleaseCursor();
+void RestoreCursor();
 
 // Feeds ImGui the information it would normally get from a platform backend.
 //
@@ -95,6 +102,18 @@ HRESULT STDMETHODCALLTYPE HookedEndScene(IDirect3DDevice9* device) {
 
     if (!EnsureImGuiInitialized(device)) return S_OK;
 
+    // The game grabs the keyboard and often swallows the Insert key, so the
+    // toggle is also polled here. GetAsyncKeyState reports the key as down
+    // while it is held, so the edge has to be detected manually.
+    if (GetAsyncKeyState(VK_INSERT) & 0x8000) {
+        if (!g_insertWasDown) {
+            g_insertWasDown = true;
+            ToggleMenu();
+        }
+    } else {
+        g_insertWasDown = false;
+    }
+
     // The display size has to be known before the frame is started,
     // otherwise ImGui builds its draw data with a zero sized viewport.
     UpdateImGuiFrameState(device);
@@ -107,7 +126,12 @@ HRESULT STDMETHODCALLTYPE HookedEndScene(IDirect3DDevice9* device) {
     DrawEspOverlay();
 
     if (g_menuOpen) {
+        // The game keeps the mouse cursor locked to the screen, so it has to
+        // be handed over to the overlay while the menu is open.
+        ReleaseCursor();
         RenderMenu();
+    } else {
+        RestoreCursor();
     }
 
     ImGui::Render();
@@ -120,6 +144,52 @@ HRESULT STDMETHODCALLTYPE HookedReset(IDirect3DDevice9* device, D3DPRESENT_PARAM
     const HRESULT hr = g_originalReset != nullptr ? g_originalReset(device, params) : S_OK;
     if (g_imguiInitialized) ImGui_ImplDX9_CreateDeviceObjects();
     return hr;
+}
+
+// --- Cursor handling --------------------------------------------------------
+
+// The game hides and clips the mouse cursor and warps it to the centre of
+// the screen while the player is in control. While the menu is open the
+// cursor has to be released, otherwise ImGui never sees a mouse position
+// that moves and nothing can be clicked.
+void ReleaseCursor() {
+    // The game hides and clips the cursor every frame it renders, so this
+    // has to run every frame as well.
+    //
+    // ClipCursor(nullptr) lifts the clip rectangle, which is what actually
+    // keeps the mouse locked to the screen.
+    ClipCursor(nullptr);
+
+    // ShowCursor keeps an internal display counter: the cursor is visible
+    // while that counter is >= 0. The game calls ShowCursor(FALSE) on every
+    // frame, which drives the counter down.
+    //
+    // The counter is tracked here so that every ShowCursor(TRUE) this
+    // overlay makes is matched by exactly one ShowCursor(FALSE) when the
+    // menu closes. Without that the counter would grow for as long as the
+    // menu is open.
+    const int before = ShowCursor(TRUE);
+    if (before < 0) {
+        // The counter was still negative, so one more call is needed to
+        // bring it up to zero and make the cursor visible.
+        ShowCursor(TRUE);
+        g_cursorShown += 2;
+    } else {
+        g_cursorShown += 1;
+    }
+    g_cursorReleased = true;
+}
+
+void RestoreCursor() {
+    if (!g_cursorReleased) return;
+
+    // Hand the cursor back to the game by undoing exactly the ShowCursor
+    // calls that were made while the menu was open.
+    for (int i = 0; i < g_cursorShown; ++i) {
+        ShowCursor(FALSE);
+    }
+    g_cursorShown = 0;
+    g_cursorReleased = false;
 }
 
 // --- Input forwarding -------------------------------------------------------
@@ -280,16 +350,16 @@ bool ForwardKeyboardMessage(UINT msg, WPARAM wParam) {
 // --- Window procedure --------------------------------------------------------
 
 LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    // Toggle the menu with the Insert key. This is handled before anything
-    // else so that the menu can always be closed again.
-    if (msg == WM_KEYDOWN && wParam == VK_INSERT) {
-        ToggleMenu();
-        return 0;
-    }
+    // The Insert key is polled from the render thread (see HookedEndScene),
+    // because the game grabs the keyboard and swallows the key press before
+    // it would ever reach this window procedure. Toggling here as well would
+    // toggle the menu twice.
 
     if (g_imguiInitialized && ImGui::GetCurrentContext() != nullptr) {
-        // The overlay only reacts to input while it is open.
         if (g_menuOpen) {
+            // Keep the cursor available while the menu is open.
+            if (msg == WM_SETCURSOR || msg == WM_MOUSEMOVE) ReleaseCursor();
+
             if (ForwardMouseMessage(msg, wParam, lParam)) return 0;
             if (ForwardKeyboardMessage(msg, wParam)) return 0;
         }
@@ -363,23 +433,89 @@ bool InstallHooks() {
     return true;
 }
 
-// The game stores its main window handle at 0xC17054.
-HWND FindGameWindow() {
-    const uintptr_t handle = ReadPointer(kWindowHandleAddress);
+// The game stores a *pointer* to its main window handle at 0xC17054, so the
+// window has to be looked up with two levels of indirection:
+//
+//     0xC17054  ->  0xC8CF88  ->  HWND
+//
+// Reading it only once yields the address of the HWND variable rather than
+// the HWND itself, and hooking that address silently does nothing.
+HWND FindGameWindowFromAddress() {
+    const uintptr_t hwndSlot = ReadPointer(kWindowHandleAddress);
+    if (hwndSlot == 0) return nullptr;
+
+    const uintptr_t handle = ReadPointer(hwndSlot);
     if (handle == 0) return nullptr;
+
     return reinterpret_cast<HWND>(handle);
 }
 
-bool EnsureImGuiInitialized(IDirect3DDevice9* device) {
-    if (g_imguiInitialized) return true;
+// Finds the window that belongs to this process and is owned by the game.
+// Used as a fallback when the address lookup does not work.
+BOOL CALLBACK EnumWindowCallback(HWND hWnd, LPARAM lParam) {
+    DWORD processId = 0;
+    GetWindowThreadProcessId(hWnd, &processId);
+    if (processId != GetCurrentProcessId()) return TRUE;
 
-    g_window = FindGameWindow();
-    if (g_window == nullptr) g_window = GetForegroundWindow();
-
-    if (g_window != nullptr) {
-        g_originalWndProc = reinterpret_cast<WNDPROC>(SetWindowLongPtrA(
-            g_window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&HookedWndProc)));
+    // The visible top level window of the process is the game window.
+    if (IsWindowVisible(hWnd) && GetWindow(hWnd, GW_OWNER) == nullptr) {
+        HWND* result = reinterpret_cast<HWND*>(lParam);
+        *result = hWnd;
+        return FALSE;  // stop enumerating
     }
+    return TRUE;
+}
+
+HWND FindGameWindowByEnumeration() {
+    HWND result = nullptr;
+    EnumWindows(EnumWindowCallback, reinterpret_cast<LPARAM>(&result));
+    return result;
+}
+
+HWND FindGameWindow() {
+    HWND window = FindGameWindowFromAddress();
+    if (window != nullptr && IsWindow(window)) return window;
+    return FindGameWindowByEnumeration();
+}
+
+// Installs the window procedure hook on the game window.
+//
+// This is retried every frame until it succeeds, because the game window
+// handle is not necessarily available when the overlay is first set up.
+void EnsureWindowProcHooked() {
+    if (g_originalWndProc != nullptr) return;  // already hooked
+
+    HWND window = FindGameWindow();
+    if (window == nullptr) return;
+    if (!IsWindow(window)) return;
+
+    // Make sure the hook is installed on the window that really owns the
+    // mouse input, otherwise the game keeps the cursor and the overlay
+    // never sees a single event.
+    const WNDPROC original = reinterpret_cast<WNDPROC>(SetWindowLongPtrA(
+        window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&HookedWndProc)));
+
+    // SetWindowLongPtr returns the previous window procedure. A zero return
+    // with a non-zero last error means the hook failed.
+    if (original == nullptr && GetLastError() != 0) {
+        SetLastError(0);
+        return;
+    }
+
+    g_originalWndProc = original;
+    g_window = window;
+    SetLastError(0);
+}
+
+bool EnsureImGuiInitialized(IDirect3DDevice9* device) {
+    if (g_imguiInitialized) {
+        // The window may not have been ready when the overlay was created,
+        // so keep trying to hook it.
+        EnsureWindowProcHooked();
+        return true;
+    }
+
+    EnsureWindowProcHooked();
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -421,6 +557,9 @@ bool InitializeOverlay() {
 
 void ShutdownOverlay() {
     if (!g_hooksInstalled) return;
+
+    // Give the cursor back to the game before the overlay goes away.
+    RestoreCursor();
 
     if (g_imguiInitialized) {
         ImGui_ImplDX9_Shutdown();

@@ -169,6 +169,19 @@ Input is only consumed while the menu is open, and only when ImGui
 actually asks for it, so the game keeps its normal controls otherwise.
 **INSERT** is reserved for toggling the menu and never reaches the game.
 
+Because the game grabs the keyboard and the mouse, two extra measures are
+needed:
+
+- The window handle is looked up with two levels of indirection
+  (`0xC17054` -> address of the handle -> handle), because the game stores
+  a *pointer* to its window handle. If the handle cannot be read, the
+  window is found by enumerating the top level windows of the process.
+- While the menu is open the cursor is unclipped and made visible every
+  frame, because the game hides and clips it again on every frame it
+  renders. The cursor position is left alone so ImGui does not see the
+  mouse jump around. When the menu is closed the cursor is handed back to
+  the game.
+
 ---
 
 ## Project layout
@@ -233,16 +246,30 @@ one you just built.
 
 **The menu shows up but clicking does nothing**
 
-The overlay needs the game's window procedure to forward mouse and
-keyboard events to ImGui. Older builds only swallowed the messages and
-never produced ImGui events, so the menu was completely unresponsive.
-Rebuild from the latest source if you see this.
+Two separate things have to work for the menu to be usable:
+
+1. The overlay's window procedure has to be installed on the window that
+   actually receives the mouse input. The game keeps a *pointer* to its
+   window handle at `0xC17054`, so the handle has to be looked up with two
+   levels of indirection. If only one level is read, the hook is installed
+   on an address that is not a window and silently does nothing.
+2. The game hides, clips and warps the mouse cursor while the player is in
+   control. While the menu is open the overlay unclips the cursor and makes
+   it visible again, otherwise ImGui never sees a mouse position that moves
+   and nothing can be clicked.
+
+Older builds got both of these wrong, so the menu was completely
+unresponsive. Rebuild from the latest source if you see this.
 
 **The menu does not appear at all**
 
-Check that the DLL actually loaded (e.g. with Process Hacker) and that
-**INSERT** reaches the game window — the game has to have focus for the
-window procedure to see the key press.
+Check that the DLL actually loaded (e.g. with Process Hacker).
+
+**INSERT does not toggle the menu**
+
+The game grabs the keyboard and swallows the key press. The overlay
+therefore polls the key from the render thread instead of relying on the
+window procedure, so the toggle works even when the game has focus.
 
 ---
 
