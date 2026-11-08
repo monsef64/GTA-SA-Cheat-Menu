@@ -1,0 +1,325 @@
+name: Build
+
+# Build the cheat menu DLL with MSVC on a Windows runner.
+#
+# The game is a 32-bit process, so everything is compiled for x86 (Win32).
+# The build only needs Visual Studio and the Windows SDK - the world-to-screen
+# projection is implemented in src/D3D9Math.h, so no DirectX SDK is required.
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - 'arena/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: MSVC x86 (Release)
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up the MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Show the compiler version
+        shell: cmd
+        run: cl
+
+      # The C++ sources and MinHook's C sources are compiled separately and
+      # then linked together.
+      #
+      # A few things to know about driving cl from a batch file:
+      #
+      #   * cmd.exe does not expand wildcards for executables, so neither
+      #     `cl src\*.cpp` nor `link *.obj` works. The object files are
+      #     listed explicitly for the link instead.
+      #   * The C++ and the C trees contain files with the same base name
+      #     (src\Hook.cpp and third_party\minhook\src\hook.c), so they
+      #     must not share one object directory. MinHook compiles into
+      #     build\minhook, the rest into the working directory.
+      #   * `type` resets the errorlevel, so the exit code has to be read
+      #     before the log is printed.
+      - name: Compile the C++ sources
+        shell: cmd
+        run: |
+          if not exist build mkdir build
+          echo Compiling the C++ sources... > build-log.txt
+          cl /nologo /c /O2 /MT /W3 /EHsc /std:c++17 ^
+             /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
+             /Isrc ^
+             /Ithird_party\imgui ^
+             /Ithird_party\minhook\include ^
+             src\Cheats.cpp ^
+             src\DllMain.cpp ^
+             src\Entities.cpp ^
+             src\Esp.cpp ^
+             src\Hook.cpp ^
+             src\Memory.cpp ^
+             src\Menu.cpp ^
+             src\PedModels.cpp ^
+             src\Spawner.cpp ^
+             src\VehicleModels.cpp ^
+             src\Weapons.cpp ^
+             third_party\imgui\imgui.cpp ^
+             third_party\imgui\imgui_draw.cpp ^
+             third_party\imgui\imgui_tables.cpp ^
+             third_party\imgui\imgui_widgets.cpp ^
+             third_party\imgui\imgui_impl_dx9.cpp ^
+             > build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
+          type build-log.txt
+          exit /b %RC%
+
+      - name: Compile the MinHook sources
+        shell: cmd
+        run: |
+          if not exist build\minhook mkdir build\minhook
+          cl /nologo /c /O2 /MT /W3 ^
+             /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
+             /Ithird_party\minhook\include ^
+             /Fobuild\minhook\ ^
+             third_party\minhook\src\buffer.c ^
+             third_party\minhook\src\hook.c ^
+             third_party\minhook\src\trampoline.c ^
+             third_party\minhook\src\hde\hde32.c ^
+             third_party\minhook\src\hde\hde64.c ^
+             >> build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
+          type build-log.txt
+          exit /b %RC%
+
+      - name: Link SAImGuiMenu.dll
+        shell: cmd
+        run: |
+          link /nologo /DLL /OUT:build\SAImGuiMenu.dll ^
+               /IMPLIB:build\SAImGuiMenu.lib ^
+               Cheats.obj ^
+               DllMain.obj ^
+               Entities.obj ^
+               Esp.obj ^
+               Hook.obj ^
+               Memory.obj ^
+               Menu.obj ^
+               PedModels.obj ^
+               Spawner.obj ^
+               VehicleModels.obj ^
+               Weapons.obj ^
+               imgui.obj ^
+               imgui_draw.obj ^
+               imgui_tables.obj ^
+               imgui_widgets.obj ^
+               imgui_impl_dx9.obj ^
+               build\minhook\buffer.obj ^
+               build\minhook\hook.obj ^
+               build\minhook\trampoline.obj ^
+               build\minhook\hde32.obj ^
+               build\minhook\hde64.obj ^
+               d3d9.lib user32.lib gdi32.lib shell32.lib ^
+               >> build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
+          type build-log.txt
+          exit /b %RC%
+
+      - name: Verify the DLL is a 32-bit PE
+        run: |
+          $dll = Get-Item build\SAImGuiMenu.dll
+          Write-Host "Built $($dll.Name) - $($dll.Length) bytes"
+
+          # The PE header's machine field must be 0x014c (IMAGE_FILE_MACHINE_I386)
+          # for a 32-bit DLL, otherwise the game cannot load it.
+          $bytes = [System.IO.File]::ReadAllBytes($dll.FullName)
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          if ($machine -ne 0x014c) {
+            Write-Error "Expected an x86 (0x014c) PE image, got 0x$('{0:x4}' -f $machine)"
+            exit 1
+          }
+          Write-Host "OK: x86 PE image (machine 0x014c)"
+
+      - name: Build the injector helper
+        shell: cmd
+        run: |
+          cl /nologo /O2 /MT /EHsc /std:c++17 ^
+             /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
+             tools\Injector.cpp ^
+             /link /OUT:build\Injector.exe user32.lib ^
+             >> build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
+          type build-log.txt
+          exit /b %RC%
+
+      - name: Upload the build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SAImGuiMenu-x86
+          path: |
+            build/SAImGuiMenu.dll
+            build/Injector.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish the build log
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let log = '';
+            try {
+              log = fs.readFileSync('build-log.txt', 'utf8');
+            } catch (e) {
+              log = 'Could not read build-log.txt: ' + e.message;
+            }
+            console.log('===== BUILD LOG =====');
+            console.log(log);
+            console.log('===== END BUILD LOG =====');
+            await core.summary.addRaw('<pre>' + log + '</pre>').write();
+
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-release
+          path: build-log.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+  build-debug:
+    name: MSVC x86 (Debug)
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up the MSVC x86 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Compile the C++ sources
+        shell: cmd
+        run: |
+          if not exist build mkdir build
+          echo Compiling the C++ sources... > build-log.txt
+          cl /nologo /c /Od /MTd /W3 /EHsc /std:c++17 /Zi ^
+             /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
+             /Isrc ^
+             /Ithird_party\imgui ^
+             /Ithird_party\minhook\include ^
+             src\Cheats.cpp ^
+             src\DllMain.cpp ^
+             src\Entities.cpp ^
+             src\Esp.cpp ^
+             src\Hook.cpp ^
+             src\Memory.cpp ^
+             src\Menu.cpp ^
+             src\PedModels.cpp ^
+             src\Spawner.cpp ^
+             src\VehicleModels.cpp ^
+             src\Weapons.cpp ^
+             third_party\imgui\imgui.cpp ^
+             third_party\imgui\imgui_draw.cpp ^
+             third_party\imgui\imgui_tables.cpp ^
+             third_party\imgui\imgui_widgets.cpp ^
+             third_party\imgui\imgui_impl_dx9.cpp ^
+             > build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
+          type build-log.txt
+          exit /b %RC%
+
+      - name: Compile the MinHook sources
+        shell: cmd
+        run: |
+          if not exist build\minhook mkdir build\minhook
+          cl /nologo /c /Od /MTd /W3 ^
+             /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
+             /Ithird_party\minhook\include ^
+             /Fobuild\minhook\ ^
+             third_party\minhook\src\buffer.c ^
+             third_party\minhook\src\hook.c ^
+             third_party\minhook\src\trampoline.c ^
+             third_party\minhook\src\hde\hde32.c ^
+             third_party\minhook\src\hde\hde64.c ^
+             >> build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
+          type build-log.txt
+          exit /b %RC%
+
+      - name: Link SAImGuiMenu.dll
+        shell: cmd
+        run: |
+          link /nologo /DLL /OUT:build\SAImGuiMenu-debug.dll ^
+               /IMPLIB:build\SAImGuiMenu-debug.lib ^
+               Cheats.obj ^
+               DllMain.obj ^
+               Entities.obj ^
+               Esp.obj ^
+               Hook.obj ^
+               Memory.obj ^
+               Menu.obj ^
+               PedModels.obj ^
+               Spawner.obj ^
+               VehicleModels.obj ^
+               Weapons.obj ^
+               imgui.obj ^
+               imgui_draw.obj ^
+               imgui_tables.obj ^
+               imgui_widgets.obj ^
+               imgui_impl_dx9.obj ^
+               build\minhook\buffer.obj ^
+               build\minhook\hook.obj ^
+               build\minhook\trampoline.obj ^
+               build\minhook\hde32.obj ^
+               build\minhook\hde64.obj ^
+               d3d9.lib user32.lib gdi32.lib shell32.lib ^
+               >> build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
+          type build-log.txt
+          exit /b %RC%
+
+      - name: Upload the debug build
+        uses: actions/upload-artifact@v4
+        with:
+          name: SAImGuiMenu-x86-debug
+          path: build/SAImGuiMenu-debug.dll
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish the build log
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let log = '';
+            try {
+              log = fs.readFileSync('build-log.txt', 'utf8');
+            } catch (e) {
+              log = 'Could not read build-log.txt: ' + e.message;
+            }
+            console.log('===== BUILD LOG =====');
+            console.log(log);
+            console.log('===== END BUILD LOG =====');
+            await core.summary.addRaw('<pre>' + log + '</pre>').write();
+
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-release
+          path: build-log.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
