@@ -1,0 +1,30 @@
+# Build output
+build/
+build_msvc/obj/
+build_msvc/*.user
+*.obj
+*.o
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# The compiled DLL / EXE
+*.dll
+*.exe
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Editors
+.idea/
+.vscode/
+*.swp
