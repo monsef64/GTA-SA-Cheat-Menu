@@ -36,26 +36,30 @@ jobs:
         shell: cmd
         run: cl
 
-      # The C++ sources and the C sources (MinHook) are compiled separately
-      # and then linked together. Compiling them in one cl invocation also
-      # works, but doing it in two steps makes the link line explicit and
-      # keeps the C runtime consistent.
+      # The C++ sources and MinHook's C sources are compiled separately and
+      # then linked together.
       #
-      # The output of every command is captured in build-log.txt, which is
-      # uploaded as an artifact even when the build fails. That makes it
-      # possible to see the compiler errors without digging through the
-      # Actions log.
+      # A few things to know about driving cl from a batch file:
       #
-      # The output is redirected rather than piped through tee on purpose:
-      # in cmd.exe a pipeline only propagates the exit code of its last
-      # command, so `cl ... | tee log` would hide a compiler failure.
+      #   * cmd.exe does not expand wildcards for executables, so neither
+      #     `cl src\*.cpp` nor `link *.obj` works. The object files are
+      #     listed explicitly for the link instead.
+      #   * The C++ and the C trees contain files with the same base name
+      #     (src\Hook.cpp and third_party\minhook\src\hook.c), so they
+      #     must not share one object directory. MinHook compiles into
+      #     build\minhook, the rest into the working directory.
+      #   * `type` resets the errorlevel, so the exit code has to be read
+      #     before the log is printed.
       - name: Compile the C++ sources
         shell: cmd
         run: |
           if not exist build mkdir build
+          echo Compiling the C++ sources... > build-log.txt
           cl /nologo /c /O2 /MT /W3 /EHsc /std:c++17 ^
              /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
-             /Isrc /Ithird_party\imgui /Ithird_party\minhook\include ^
+             /Isrc ^
+             /Ithird_party\imgui ^
+             /Ithird_party\minhook\include ^
              src\Cheats.cpp ^
              src\DllMain.cpp ^
              src\Entities.cpp ^
@@ -73,8 +77,9 @@ jobs:
              third_party\imgui\imgui_widgets.cpp ^
              third_party\imgui\imgui_impl_dx9.cpp ^
              > build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
           type build-log.txt
-          if errorlevel 1 exit /b 1
+          exit /b %RC%
 
       - name: Compile the MinHook sources
         shell: cmd
@@ -90,30 +95,41 @@ jobs:
              third_party\minhook\src\hde\hde32.c ^
              third_party\minhook\src\hde\hde64.c ^
              >> build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
           type build-log.txt
-          if errorlevel 1 exit /b 1
+          exit /b %RC%
 
-      - name: Publish the build log to the job summary
-        if: always()
-        shell: cmd
-        run: |
-          if exist build-log.txt (
-            echo "### Build log" >> %GITHUB_STEP_SUMMARY%
-            echo '```' >> %GITHUB_STEP_SUMMARY%
-            type build-log.txt >> %GITHUB_STEP_SUMMARY%
-            echo '```' >> %GITHUB_STEP_SUMMARY%
-          )
       - name: Link SAImGuiMenu.dll
         shell: cmd
         run: |
           link /nologo /DLL /OUT:build\SAImGuiMenu.dll ^
                /IMPLIB:build\SAImGuiMenu.lib ^
-               *.obj ^
-               build\minhook\*.obj ^
+               Cheats.obj ^
+               DllMain.obj ^
+               Entities.obj ^
+               Esp.obj ^
+               Hook.obj ^
+               Memory.obj ^
+               Menu.obj ^
+               PedModels.obj ^
+               Spawner.obj ^
+               VehicleModels.obj ^
+               Weapons.obj ^
+               imgui.obj ^
+               imgui_draw.obj ^
+               imgui_tables.obj ^
+               imgui_widgets.obj ^
+               imgui_impl_dx9.obj ^
+               build\minhook\buffer.obj ^
+               build\minhook\hook.obj ^
+               build\minhook\trampoline.obj ^
+               build\minhook\hde32.obj ^
+               build\minhook\hde64.obj ^
                d3d9.lib user32.lib gdi32.lib shell32.lib ^
                >> build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
           type build-log.txt
-          if errorlevel 1 exit /b 1
+          exit /b %RC%
 
       - name: Verify the DLL is a 32-bit PE
         run: |
@@ -139,8 +155,9 @@ jobs:
              tools\Injector.cpp ^
              /link /OUT:build\Injector.exe user32.lib ^
              >> build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
           type build-log.txt
-          if errorlevel 1 exit /b 1
+          exit /b %RC%
 
       - name: Upload the build artifacts
         uses: actions/upload-artifact@v4
@@ -174,13 +191,16 @@ jobs:
         with:
           arch: x86
 
-      - name: Build SAImGuiMenu.dll (Debug)
+      - name: Compile and link SAImGuiMenu.dll (Debug)
         shell: cmd
         run: |
           if not exist build mkdir build
+          echo Compiling the C++ sources... > build-log.txt
           cl /nologo /c /Od /MTd /W3 /EHsc /std:c++17 /Zi ^
              /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
-             /Isrc /Ithird_party\imgui /Ithird_party\minhook\include ^
+             /Isrc ^
+             /Ithird_party\imgui ^
+             /Ithird_party\minhook\include ^
              src\Cheats.cpp ^
              src\DllMain.cpp ^
              src\Entities.cpp ^
@@ -198,41 +218,53 @@ jobs:
              third_party\imgui\imgui_widgets.cpp ^
              third_party\imgui\imgui_impl_dx9.cpp ^
              > build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
           type build-log.txt
-          if errorlevel 1 exit /b 1
+          exit /b %RC%
 
+          if not exist build\minhook mkdir build\minhook
           cl /nologo /c /Od /MTd /W3 ^
              /D_CRT_SECURE_NO_WARNINGS /DWIN32_LEAN_AND_MEAN /DNOMINMAX ^
              /Ithird_party\minhook\include ^
+             /Fobuild\minhook\ ^
              third_party\minhook\src\buffer.c ^
              third_party\minhook\src\hook.c ^
              third_party\minhook\src\trampoline.c ^
              third_party\minhook\src\hde\hde32.c ^
              third_party\minhook\src\hde\hde64.c ^
              >> build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
           type build-log.txt
-          if errorlevel 1 exit /b 1
+          exit /b %RC%
 
           link /nologo /DLL /OUT:build\SAImGuiMenu-debug.dll ^
                /IMPLIB:build\SAImGuiMenu-debug.lib ^
-               *.obj ^
-               build\minhook\*.obj ^
+               Cheats.obj ^
+               DllMain.obj ^
+               Entities.obj ^
+               Esp.obj ^
+               Hook.obj ^
+               Memory.obj ^
+               Menu.obj ^
+               PedModels.obj ^
+               Spawner.obj ^
+               VehicleModels.obj ^
+               Weapons.obj ^
+               imgui.obj ^
+               imgui_draw.obj ^
+               imgui_tables.obj ^
+               imgui_widgets.obj ^
+               imgui_impl_dx9.obj ^
+               build\minhook\buffer.obj ^
+               build\minhook\hook.obj ^
+               build\minhook\trampoline.obj ^
+               build\minhook\hde32.obj ^
+               build\minhook\hde64.obj ^
                d3d9.lib user32.lib gdi32.lib shell32.lib ^
                >> build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
           type build-log.txt
-          if errorlevel 1 exit /b 1
-
-
-      - name: Publish the build log to the job summary
-        if: always()
-        shell: cmd
-        run: |
-          if exist build-log.txt (
-            echo "### Build log" >> %GITHUB_STEP_SUMMARY%
-            echo '```' >> %GITHUB_STEP_SUMMARY%
-            type build-log.txt >> %GITHUB_STEP_SUMMARY%
-            echo '```' >> %GITHUB_STEP_SUMMARY%
-          )
+          exit /b %RC%
 
       - name: Upload the debug build
         uses: actions/upload-artifact@v4
