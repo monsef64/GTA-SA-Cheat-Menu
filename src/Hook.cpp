@@ -133,7 +133,7 @@ IDirect3DDevice9* CreateDummyDevice() {
     IDirect3DDevice9* device = nullptr;
     const HRESULT hr = d3d9Interface->CreateDevice(
         D3DADAPTER_DEFAULT, D3DDEVTYPE_NULLREF, nullptr,
-        D3D_CREATE_SOFTWARE_VERTEXPROCESSING, &params, &device);
+        D3DCREATE_SOFTWARE_VERTEXPROCESSING, &params, &device);
     d3d9Interface->Release();
     FreeLibrary(d3d9);
 
