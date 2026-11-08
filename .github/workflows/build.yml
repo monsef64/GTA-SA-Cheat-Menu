@@ -92,7 +92,7 @@ jobs:
             echo '```' >> %GITHUB_STEP_SUMMARY%
             REM Re-emit the compiler output as workflow commands so the
             REM errors show up in the run's annotations.
-            findstr /R /C:"error C[0-9]*" /C:"error LNK[0-9]*" /C:"fatal error" build-log.txt > errors.txt
+            findstr /R /C:"error " /C:"fatal error" build-log.txt > errors.txt
             if exist errors.txt (
               for /F "delims=" %%L in (errors.txt) do echo ::error %%L
             )
@@ -249,7 +249,7 @@ jobs:
             echo '```' >> %GITHUB_STEP_SUMMARY%
             REM Re-emit the compiler output as workflow commands so the
             REM errors show up in the run's annotations.
-            findstr /R /C:"error C[0-9]*" /C:"error LNK[0-9]*" /C:"fatal error" build-log.txt > errors.txt
+            findstr /R /C:"error " /C:"fatal error" build-log.txt > errors.txt
             if exist errors.txt (
               for /F "delims=" %%L in (errors.txt) do echo ::error %%L
             )
